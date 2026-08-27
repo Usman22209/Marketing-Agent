@@ -1,0 +1,109 @@
+{
+  "name": "AI Marketing Autopilot - 2-Day Content & Gmail Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-1",
+      "name": "Every 2 Days at 9:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trigger-marketing-post",
+        "options": {}
+      },
+      "id": "webhook-trigger-1",
+      "name": "On-Demand Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        480
+      ],
+      "webhookId": "marketing-agent-trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{$env.GEMINI_API_KEY || $json.body?.geminiApiKey}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"You are a viral SaaS copywriter. Generate a high-converting LinkedIn post and Instagram 5-slide carousel for this app: Name: {{$json.body?.appName || 'DevFlow AI'}}, Target: {{$json.body?.targetAudience || 'Developers'}}, Key Feature: {{$json.body?.keyFeature || 'AI Code Reviews'}}. Return valid JSON with keys: linkedinPost, instagramCaption, carouselSlides, hashtags\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"responseMimeType\": \"application/json\"\n  }\n}",
+        "options": {}
+      },
+      "id": "gemini-ai-node-1",
+      "name": "Gemini AI Agent Node",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$json.body?.userEmail || $env.USER_GMAIL}}",
+        "subject": "=🚀 Your New Marketing Post is Ready ({{$json.body?.appName || 'Your App'}})",
+        "message": "=Hi there,\n\nYour automated AI Marketing Agent has prepared today's new social posts!\n\n----------------------------------------\n📌 LINKEDIN POST:\n----------------------------------------\n{{JSON.parse($json.candidates[0].content.parts[0].text).linkedinPost}}\n\n----------------------------------------\n📸 INSTAGRAM CAPTION & CAROUSEL:\n----------------------------------------\n{{JSON.parse($json.candidates[0].content.parts[0].text).instagramCaption}}\n\nHashtags: {{JSON.parse($json.candidates[0].content.parts[0].text).hashtags}}\n\n----------------------------------------\n👉 Review, edit, and download branded visuals in your Web Dashboard:\nhttp://localhost:3000\n\n- Powered by your AI Marketing Agent"
+      },
+      "id": "gmail-send-node-1",
+      "name": "Send Gmail Notification",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        760,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "Every 2 Days at 9:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Gemini AI Agent Node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On-Demand Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gemini AI Agent Node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini AI Agent Node": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
