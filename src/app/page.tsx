@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   AppProfile,
   CampaignRoadmap,
+  CronExecutionLog,
   MarketingStrategyPlan,
   PostContent,
   UserSettings,
@@ -19,6 +20,8 @@ import {
   getUserSettings,
   saveUserSettings,
   clearAllStoredData,
+  getStoredCronLogs,
+  saveCronLog,
 } from '@/lib/storage';
 import { generateMockCampaign, generateMockStrategy, generateMockSinglePost } from '@/lib/gemini';
 import { Navbar } from '@/components/Navbar';
@@ -36,20 +39,31 @@ import {
   Compass,
   FileText,
   Plus,
+  Clock,
+  Play,
+  CheckCircle2,
+  Mail,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export default function Dashboard() {
   const [apps, setApps] = useState<AppProfile[]>([]);
   const [activeApp, setActiveApp] = useState<AppProfile | null>(null);
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
-  
+
   // Strategy & Posts State
   const [strategy, setStrategy] = useState<MarketingStrategyPlan | null>(null);
   const [posts, setPosts] = useState<PostContent[]>([]);
   const [selectedPost, setSelectedPost] = useState<PostContent | null>(null);
-  const [activeTab, setActiveTab] = useState<'strategy' | 'posts'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'scheduler' | 'strategy'>('posts');
   const [activePlatform, setActivePlatform] = useState<'linkedin' | 'instagram'>('linkedin');
-  
+
+  // Cron / Scheduler State
+  const [cronLogs, setCronLogs] = useState<CronExecutionLog[]>([]);
+  const [isRunningCron, setIsRunningCron] = useState(false);
+  const [copiedCurl, setCopiedCurl] = useState(false);
+
   // Modals & Progress
   const [isAppModalOpen, setIsAppModalOpen] = useState(false);
   const [isEditingApp, setIsEditingApp] = useState(false);
@@ -82,6 +96,7 @@ export default function Dashboard() {
 
         const loadedSettings = getUserSettings();
         setSettings(loadedSettings);
+        setCronLogs(getStoredCronLogs());
       } finally {
         setIsLoadingInitial(false);
       }
@@ -89,9 +104,8 @@ export default function Dashboard() {
     loadData();
   }, []);
 
-  // 2. Load Campaign for specific App (Strict App Isolation — Bug 2 Fix)
+  // 2. Load Campaign for specific App
   const loadProductCampaign = (app: AppProfile) => {
-    // Immediately provide a baseline strategy so UI is never blank
     const defaultStrategy = generateMockStrategy(app);
     setStrategy(defaultStrategy);
     setPosts([]);
@@ -105,7 +119,6 @@ export default function Dashboard() {
       setSelectedPost(camp.posts[0] || null);
       setActiveTab('posts');
     } else {
-      // Trigger Strategy-First flow automatically for fresh app
       startStrategyFirstGeneration(app, 'Product Launch & User Acquisition');
     }
   };
@@ -129,7 +142,6 @@ export default function Dashboard() {
     setActiveApp(updated);
     activeAppRef.current = updated.id;
 
-    // Reset & kick off fresh generation
     setPosts([]);
     setSelectedPost(null);
     setStrategy(generateMockStrategy(updated));
@@ -137,18 +149,16 @@ export default function Dashboard() {
     showNotification(`Saved "${updated.name}"!`);
   };
 
-  // 5. Strategy-First Background Rollercoaster Engine (Feature & Bug 1 Fix)
+  // 5. Strategy-First Post Generation Engine
   const startStrategyFirstGeneration = async (app: AppProfile, objective: string) => {
-    // 1. Instantly set strategy baseline so UI displays immediately with 0 delay
     const initialStrategy = generateMockStrategy(app);
     setStrategy(initialStrategy);
     setIsGeneratingStrategy(true);
     setIsGeneratingPosts(true);
-    setActiveTab('strategy');
+    setActiveTab('posts');
 
     let currentStrategy: MarketingStrategyPlan = initialStrategy;
 
-    // Step 1: Enrich strategy with AI if available
     try {
       const res = await fetch('/api/generate-strategy', {
         method: 'POST',
@@ -170,12 +180,10 @@ export default function Dashboard() {
       setIsGeneratingStrategy(false);
     }
 
-    // Step 2: Background Post Generation (One post at a time, 0 truncation risk)
     const generatedPosts: PostContent[] = [];
     const blueprintList = currentStrategy.blueprint || initialStrategy.blueprint;
 
     for (let i = 0; i < blueprintList.length; i++) {
-      // Check if user switched to another app in between
       if (activeAppRef.current !== app.id) break;
 
       const bp = blueprintList[i];
@@ -197,11 +205,10 @@ export default function Dashboard() {
           generatedPosts.push(generateMockSinglePost(app, bp, i));
         }
       } catch (err) {
-        console.warn(`Post error for Day ${bp.dayNumber}, using instant fallback:`, err);
+        console.warn(`Post error for Day ${bp.dayNumber}, using fallback:`, err);
         generatedPosts.push(generateMockSinglePost(app, bp, i));
       }
 
-      // Update state incrementally so user sees live progress
       setPosts([...generatedPosts]);
       if (!selectedPost && generatedPosts.length > 0) {
         setSelectedPost(generatedPosts[0]);
@@ -210,7 +217,6 @@ export default function Dashboard() {
 
     setIsGeneratingPosts(false);
 
-    // Persist completed campaign for this specific app
     const newCamp: CampaignRoadmap = {
       id: `campaign-${app.id}`,
       appId: app.id,
@@ -223,6 +229,55 @@ export default function Dashboard() {
     };
     saveCampaign(newCamp);
     showNotification('All 7 marketing posts ready!');
+  };
+
+  // 6. Autonomous Cron Run Trigger
+  const handleRunCronNow = async () => {
+    if (!activeApp) return;
+    setIsRunningCron(true);
+
+    try {
+      const res = await fetch('/api/cron', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app: activeApp,
+          toEmail: settings.userEmail,
+          apiKey: settings.geminiApiKey,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success && data.post) {
+        const newPost: PostContent = data.post;
+        const updatedPosts = [newPost, ...posts.filter((p) => p.id !== newPost.id)];
+        setPosts(updatedPosts);
+        setSelectedPost(newPost);
+
+        const newLog: CronExecutionLog = {
+          id: `log-${Date.now()}`,
+          appId: activeApp.id,
+          appName: activeApp.name,
+          postTitle: newPost.title,
+          dayNumber: newPost.dayNumber,
+          status: 'success',
+          executedAt: new Date().toISOString(),
+          message: data.message,
+          emailSentTo: data.recipientEmail || undefined,
+        };
+
+        saveCronLog(newLog);
+        setCronLogs((prev) => [newLog, ...prev]);
+        showNotification(`⚡ Day ${newPost.dayNumber} post generated and scheduled!`);
+      } else {
+        showNotification(`⚠️ ${data.message || 'Cron execution completed.'}`);
+      }
+    } catch (err: any) {
+      console.error('Manual cron trigger error:', err);
+      showNotification(`❌ Error triggering scheduler: ${err?.message}`);
+    } finally {
+      setIsRunningCron(false);
+    }
   };
 
   // Delete App Profile
@@ -245,7 +300,7 @@ export default function Dashboard() {
         setSelectedPost(null);
         setStrategy(null);
       }
-      showNotification('Business profile deleted.');
+      showNotification('Product profile deleted.');
     }
   };
 
@@ -277,7 +332,6 @@ export default function Dashboard() {
     }
   };
 
-  // Update specific post in campaign
   const handleUpdatePost = (updatedPost: PostContent) => {
     setSelectedPost(updatedPost);
     const updated = posts.map((p) => (p.id === updatedPost.id ? updatedPost : p));
@@ -296,9 +350,19 @@ export default function Dashboard() {
     }
   };
 
+  const copyCronCurl = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    const curlCommand = settings.cronSecret
+      ? `curl -X POST -H "Authorization: Bearer ${settings.cronSecret}" ${origin}/api/cron`
+      : `curl -X POST ${origin}/api/cron`;
+    navigator.clipboard.writeText(curlCommand);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 2000);
+  };
+
   const showNotification = (msg: string) => {
     setStatusNotification(msg);
-    setTimeout(() => setStatusNotification(null), 2500);
+    setTimeout(() => setStatusNotification(null), 3000);
   };
 
   return (
@@ -311,7 +375,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Clean Navbar */}
+      {/* Navbar */}
       <Navbar
         apps={apps}
         activeApp={activeApp}
@@ -332,12 +396,12 @@ export default function Dashboard() {
           </div>
         ) : !activeApp ? (
           <div className="text-center py-16 px-6 bg-white rounded-3xl border border-slate-200 shadow-xs max-w-xl mx-auto my-12 space-y-4 animate-in">
-            <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-purple-600 text-white rounded-2xl flex items-center justify-center mx-auto shadow-md">
+            <div className="w-16 h-16 bg-indigo-600 text-white rounded-2xl flex items-center justify-center mx-auto shadow-md">
               <Sparkles className="w-8 h-8" />
             </div>
             <h2 className="text-2xl font-extrabold text-slate-900">Welcome to MarketAgent</h2>
             <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
-              Add your product, SaaS, or agency profile to formulate a tailored marketing strategy and generate 14-day high-converting social campaigns with AI.
+              Add your product or business profile to formulate high-converting social campaigns with AI and manage autonomous post scheduling.
             </p>
             <div className="pt-3">
               <button
@@ -346,7 +410,7 @@ export default function Dashboard() {
                   setIsEditingApp(false);
                   setIsAppModalOpen(true);
                 }}
-                className="inline-flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:opacity-95 text-white text-sm font-extrabold rounded-2xl shadow-lg shadow-indigo-600/30 transition-all active:scale-95 cursor-pointer"
+                className="inline-flex items-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-extrabold rounded-2xl shadow-lg shadow-indigo-600/30 transition-all active:scale-95 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add Your Product</span>
@@ -385,7 +449,7 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={() => setIsGeneratorOpen(true)}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-xs cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-xs cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4" />
                   <span>Regenerate Campaign</span>
@@ -395,29 +459,16 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => handleDeleteApp(activeApp.id)}
                   className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                  title="Delete Business"
+                  title="Delete Product"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* Top View Mode Switcher: Strategy vs 7 Social Posts */}
+            {/* Top View Mode Switcher: Posts vs Scheduler vs Strategy */}
             <div className="flex items-center justify-between gap-4 border-b border-slate-200 pb-2">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('strategy')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                    activeTab === 'strategy'
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <Compass className="w-4 h-4 text-indigo-400" />
-                  <span>Marketing Strategy</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={() => setActiveTab('posts')}
@@ -428,7 +479,33 @@ export default function Dashboard() {
                   }`}
                 >
                   <FileText className="w-4 h-4 text-emerald-400" />
-                  <span>7 Social Posts ({posts.length} Ready)</span>
+                  <span>Social Posts ({posts.length} Ready)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('scheduler')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                    activeTab === 'scheduler'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Clock className="w-4 h-4 text-amber-400" />
+                  <span>Automated Scheduler</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('strategy')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                    activeTab === 'strategy'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Compass className="w-4 h-4 text-indigo-400" />
+                  <span>Marketing Blueprint</span>
                 </button>
               </div>
 
@@ -440,21 +517,10 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* View 1: Marketing Strategy Blueprint */}
-            {activeTab === 'strategy' && (
-              <StrategyOverviewCard
-                strategy={strategy || generateMockStrategy(activeApp)}
-                posts={posts}
-                totalExpected={strategy?.blueprint?.length || 7}
-                isGeneratingPosts={isGeneratingPosts}
-                onViewPosts={() => setActiveTab('posts')}
-              />
-            )}
-
-            {/* View 2: 7 Social Posts Studio */}
+            {/* Tab 1: Posts Studio */}
             {activeTab === 'posts' && (
               <div className="space-y-6">
-                {/* Post Switcher (Post 1 to Post 7) */}
+                {/* Post Switcher */}
                 {posts.length > 0 ? (
                   <div className="space-y-2">
                     <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">
@@ -535,7 +601,6 @@ export default function Dashboard() {
                         onRefineWithAI={handleRefineWithAI}
                         isRefining={isRefining}
                         userEmail={settings.userEmail}
-                        n8nWebhookUrl={settings.n8nWebhookUrl}
                       />
                     ) : (
                       <InstagramPreviewCard
@@ -545,12 +610,151 @@ export default function Dashboard() {
                         onRefineWithAI={handleRefineWithAI}
                         isRefining={isRefining}
                         userEmail={settings.userEmail}
-                        n8nWebhookUrl={settings.n8nWebhookUrl}
                       />
                     )}
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Tab 2: Autonomous Scheduler View */}
+            {activeTab === 'scheduler' && (
+              <div className="space-y-6">
+                {/* Scheduler Control Panel */}
+                <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                        <Clock className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h2 className="text-base font-extrabold text-slate-900">Autonomous Timed Event Scheduler</h2>
+                        <p className="text-xs text-slate-500">
+                          Automatically generates marketing content on a regular schedule without external tools.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        Status: Active (Every 2 Days)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Trigger Action */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-indigo-400" />
+                        Run Scheduled Event Now
+                      </h3>
+                      <p className="text-xs text-slate-300 mt-0.5">
+                        Test and generate the next post immediately without waiting for the cron timer.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isRunningCron}
+                      onClick={handleRunCronNow}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-extrabold shadow-md transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isRunningCron ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Generating Post...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 fill-white" />
+                          <span>Run Scheduler Now</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Info Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                      <div className="text-xs text-slate-500 font-bold">Endpoint URL</div>
+                      <div className="text-sm font-extrabold text-slate-900 mt-1 font-mono">/api/cron</div>
+                      <div className="text-[11px] text-slate-500 mt-1">Accepts GET and POST requests</div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                      <div className="text-xs text-slate-500 font-bold">Email Briefings</div>
+                      <div className="text-sm font-extrabold text-slate-900 mt-1 truncate">
+                        {settings.userEmail || 'Not configured'}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        {settings.userEmail ? 'Active for new posts' : 'Set in Settings modal'}
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                      <div className="text-xs text-slate-500 font-bold">External Automation</div>
+                      <div className="text-sm font-extrabold text-slate-900 mt-1">Vercel / Curl / Actions</div>
+                      <button
+                        type="button"
+                        onClick={copyCronCurl}
+                        className="text-[11px] font-bold text-indigo-600 hover:underline mt-1 flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedCurl ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedCurl ? 'Copied curl command' : 'Copy curl trigger'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Execution Log */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <h3 className="font-extrabold text-xs uppercase tracking-wider text-slate-500 mb-3">
+                      Recent Scheduler Executions
+                    </h3>
+
+                    {cronLogs.length > 0 ? (
+                      <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                        {cronLogs.map((log) => (
+                          <div key={log.id} className="p-3.5 bg-white flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                              <div>
+                                <span className="font-bold text-slate-900">{log.postTitle}</span>
+                                <span className="text-slate-400 mx-1.5">•</span>
+                                <span className="text-slate-500">Day {log.dayNumber}</span>
+                                {log.emailSentTo && (
+                                  <span className="ml-2 px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold">
+                                    Email sent
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-slate-400 font-mono text-[11px]">
+                              {new Date(log.executedAt).toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500">
+                        No scheduled runs recorded yet. Click &quot;Run Scheduler Now&quot; above to trigger your first autonomous event!
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 3: Strategy View */}
+            {activeTab === 'strategy' && (
+              <StrategyOverviewCard
+                strategy={strategy || generateMockStrategy(activeApp)}
+                posts={posts}
+                totalExpected={strategy?.blueprint?.length || 7}
+                isGeneratingPosts={isGeneratingPosts}
+                onViewPosts={() => setActiveTab('posts')}
+              />
             )}
           </>
         )}
@@ -638,6 +842,7 @@ export default function Dashboard() {
           setPosts([]);
           setSelectedPost(null);
           setStrategy(null);
+          setCronLogs([]);
           showNotification('All data cleared!');
         }}
       />

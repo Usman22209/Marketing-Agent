@@ -113,13 +113,26 @@ export interface CampaignRoadmap {
   posts: PostContent[];
 }
 
+export interface CronExecutionLog {
+  id: string;
+  appId: string;
+  appName: string;
+  postTitle: string;
+  dayNumber: number;
+  status: 'success' | 'failed';
+  executedAt: string;
+  message: string;
+  emailSentTo?: string;
+}
+
 export interface UserSettings {
   geminiApiKey?: string;
   openAiApiKey?: string;
   groqApiKey?: string;
   supabaseUrl?: string;
   supabaseAnonKey?: string;
-  n8nWebhookUrl?: string;
   userEmail?: string;
+  cronSecret?: string;
+  cronIntervalDays?: number;
 }
 
