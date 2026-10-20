@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { toEmail, post, app, imageUrl, n8nWebhookUrl } = body;
-    const recipientEmail = toEmail || process.env.USER_GMAIL || process.env.NEXT_PUBLIC_USER_GMAIL || 'netnetlify@gmail.com';
+    const { toEmail, post, app, imageUrl } = body;
+    const recipientEmail = toEmail || process.env.USER_GMAIL || process.env.NEXT_PUBLIC_USER_GMAIL || '';
 
     const appName = app?.name || 'Your Product';
     const dayNumber = post?.dayNumber || 1;
@@ -15,74 +15,10 @@ export async function POST(req: NextRequest) {
 
     const subject = `🚀 [${appName}] Day ${dayNumber} Social Marketing Post is Ready!`;
 
-    const targetWebhookUrl = n8nWebhookUrl || process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
-    let n8nStatus: { success: boolean; status?: number; message?: string } | null = null;
-
-    // ─── OPTION 1: DISPATCH TO N8N AUTOMATION (IF CONFIGURED) ───
-    if (targetWebhookUrl) {
-      console.log(`[Email Dispatch] Triggering n8n Webhook: ${targetWebhookUrl} for ${recipientEmail}`);
-      try {
-        const payload = {
-          event: 'send_email_briefing',
-          app_id: app?.id,
-          appId: app?.id,
-          userEmail: recipientEmail,
-          toEmail: recipientEmail,
-          recipientEmail,
-          appName,
-          dayNumber,
-          postTitle,
-          title: postTitle,
-          pillar: post?.pillar || 'Product Launch',
-          linkedinPost: linkedinText,
-          linkedinText,
-          instagramCaption: instaCaption,
-          instaCaption,
-          imageUrl: visual,
-          targetAudience: app?.targetAudience || '',
-          keyFeature: app?.keyFeatures?.[0] || '',
-          timestamp: new Date().toISOString(),
-        };
-
-        let n8nRes = await fetch(targetWebhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        // If production webhook returns 404, try test webhook URL if applicable
-        if (n8nRes.status === 404 && targetWebhookUrl.includes('/webhook/')) {
-          const testUrl = targetWebhookUrl.replace('/webhook/', '/webhook-test/');
-          console.log(`[Email Dispatch] Production webhook 404, trying test webhook URL: ${testUrl}`);
-          n8nRes = await fetch(testUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-        }
-
-        const resText = await n8nRes.text();
-        console.log(`[Email Dispatch] n8n Webhook Response (${n8nRes.status}):`, resText);
-
-        if (n8nRes.ok) {
-          n8nStatus = { success: true, status: n8nRes.status, message: 'Dispatched to n8n workflow successfully!' };
-        } else {
-          n8nStatus = {
-            success: false,
-            status: n8nRes.status,
-            message: n8nRes.status === 404
-              ? 'n8n Webhook returned 404. Make sure your workflow is toggled to "Active" in the top-right of n8n cloud.'
-              : `n8n Webhook returned status ${n8nRes.status}: ${resText}`,
-          };
-        }
-      } catch (e: any) {
-        console.error('[Email Dispatch] n8n Webhook fetch failed:', e);
-        n8nStatus = { success: false, message: `n8n connection failed: ${e?.message}` };
-      }
-    }
-
-    // ─── OPTION 2: RESEND API (IF KEY AVAILABLE) ───
+    // ─── OPTION 1: RESEND API (IF CONFIGURED) ───
     const resendApiKey = process.env.RESEND_API_KEY;
+    let emailSentDirectly = false;
+
     if (resendApiKey && recipientEmail) {
       const htmlBody = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0;">
@@ -125,7 +61,7 @@ export async function POST(req: NextRequest) {
             Authorization: `Bearer ${resendApiKey}`,
           },
           body: JSON.stringify({
-            from: `${appName} Marketing <marketing@resend.dev>`,
+            from: `${appName} Marketing <onboarding@resend.dev>`,
             to: [recipientEmail],
             subject,
             html: htmlBody,
@@ -133,19 +69,14 @@ export async function POST(req: NextRequest) {
         });
 
         if (res.ok) {
-          return NextResponse.json({
-            success: true,
-            deliveredDirectly: true,
-            message: `Day ${dayNumber} briefing successfully sent to ${recipientEmail}!`,
-            n8nStatus,
-          });
+          emailSentDirectly = true;
         }
       } catch (err) {
-        console.warn('Resend direct delivery notice:', err);
+        console.warn('Resend email delivery notice:', err);
       }
     }
 
-    // ─── OPTION 3: 1-CLICK GMAIL CLIENT PRE-FILLED LINK ───
+    // ─── OPTION 2: 1-CLICK GMAIL CLIENT PRE-FILLED LINK ───
     const mailtoBody = encodeURIComponent(
       `Here is your Day ${dayNumber} Social Post for ${appName}!\n\n` +
       `📌 TOPIC: ${postTitle}\n\n` +
@@ -157,24 +88,23 @@ export async function POST(req: NextRequest) {
       `🖼️ AI IMAGE URL:\n${visual}\n`
     );
 
-    const gmailWebUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(recipientEmail)}&su=${encodeURIComponent(subject)}&body=${mailtoBody}`;
-    const mailtoUrl = `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${mailtoBody}`;
+    const gmailWebUrl = recipientEmail
+      ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(recipientEmail)}&su=${encodeURIComponent(subject)}&body=${mailtoBody}`
+      : `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}&body=${mailtoBody}`;
+    
+    const mailtoUrl = recipientEmail
+      ? `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${mailtoBody}`
+      : `mailto:?subject=${encodeURIComponent(subject)}&body=${mailtoBody}`;
 
     return NextResponse.json({
       success: true,
-      deliveredDirectly: n8nStatus?.success || false,
-      message: n8nStatus?.success
-        ? `Day ${dayNumber} post dispatched to n8n workflow for ${recipientEmail}!`
-        : `Day ${dayNumber} briefing prepared for ${recipientEmail}!`,
-      n8nStatus,
+      deliveredDirectly: emailSentDirectly,
+      message: emailSentDirectly
+        ? `Day ${dayNumber} briefing successfully sent to ${recipientEmail}!`
+        : `Day ${dayNumber} briefing prepared!`,
       gmailWebUrl,
       mailtoUrl,
       subject,
-      preview: {
-        toEmail: recipientEmail,
-        subject,
-        postTitle,
-      },
     });
   } catch (error: any) {
     console.error('[Email Dispatch] Unexpected error:', error);

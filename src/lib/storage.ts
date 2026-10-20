@@ -1,4 +1,4 @@
-import { AppProfile, CampaignRoadmap, PostContent, UserSettings } from '@/types';
+import { AppProfile, CampaignRoadmap, CronExecutionLog, PostContent, UserSettings } from '@/types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEYS = {
@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   CAMPAIGNS: 'marketing_agent_campaigns',
   POSTS: 'marketing_agent_posts',
   SETTINGS: 'marketing_agent_settings',
+  CRON_LOGS: 'marketing_agent_cron_logs',
 };
 
 // Local storage helpers
@@ -298,13 +299,28 @@ export function getUserSettings(): UserSettings {
     geminiApiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY || '',
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
     supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-    n8nWebhookUrl: process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || '',
     userEmail: process.env.NEXT_PUBLIC_USER_GMAIL || process.env.USER_GMAIL || '',
+    cronIntervalDays: 2,
+    cronSecret: '',
   });
 }
 
 export function saveUserSettings(settings: UserSettings): void {
   setLocal(STORAGE_KEYS.SETTINGS, settings);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ⏱️ CRON / TIMED EVENT LOGS
+// ─────────────────────────────────────────────────────────────
+export function getStoredCronLogs(): CronExecutionLog[] {
+  return getLocal<CronExecutionLog[]>(STORAGE_KEYS.CRON_LOGS, []);
+}
+
+export function saveCronLog(log: CronExecutionLog): void {
+  const existing = getStoredCronLogs();
+  // Keep last 30 logs
+  const updated = [log, ...existing].slice(0, 30);
+  setLocal(STORAGE_KEYS.CRON_LOGS, updated);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -318,11 +334,13 @@ export async function clearAllStoredData(): Promise<void> {
     setLocal(STORAGE_KEYS.ACTIVE_APP_ID, '');
     setLocal(STORAGE_KEYS.CAMPAIGNS, []);
     setLocal(STORAGE_KEYS.POSTS, []);
+    setLocal(STORAGE_KEYS.CRON_LOGS, []);
 
     localStorage.removeItem(STORAGE_KEYS.APPS);
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_APP_ID);
     localStorage.removeItem(STORAGE_KEYS.CAMPAIGNS);
     localStorage.removeItem(STORAGE_KEYS.POSTS);
+    localStorage.removeItem(STORAGE_KEYS.CRON_LOGS);
 
     // Wipe remote Supabase tables if configured
     if (isSupabaseConfigured && supabase) {

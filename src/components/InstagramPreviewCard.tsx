@@ -12,7 +12,6 @@ interface InstagramPreviewCardProps {
   onRefineWithAI?: (instruction: string) => Promise<void>;
   isRefining?: boolean;
   userEmail?: string;
-  n8nWebhookUrl?: string;
 }
 
 export const InstagramPreviewCard: React.FC<InstagramPreviewCardProps> = ({
@@ -22,7 +21,6 @@ export const InstagramPreviewCard: React.FC<InstagramPreviewCardProps> = ({
   onRefineWithAI,
   isRefining = false,
   userEmail = '',
-  n8nWebhookUrl = '',
 }) => {
   const [copied, setCopied] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
@@ -60,7 +58,6 @@ export const InstagramPreviewCard: React.FC<InstagramPreviewCardProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           toEmail: userEmail,
-          n8nWebhookUrl,
           post,
           app,
           imageUrl: post.generatedImageUrl,
