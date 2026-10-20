@@ -9,31 +9,6 @@ const STORAGE_KEYS = {
   SETTINGS: 'marketing_agent_settings',
 };
 
-// Initial starter demo app
-export const DEFAULT_DEMO_APP: AppProfile = {
-  id: 'demo-app-1',
-  name: 'DevFlow AI',
-  tagline: 'Autonomous AI Code Review & Sprint Assistant for GitHub',
-  description: 'DevFlow AI connects to your GitHub repositories, analyzes PRs in seconds, spots edge-case bugs before production, and drafts clean release notes.',
-  websiteUrl: 'https://devflow.ai',
-  targetAudience: 'Software Engineers, Tech Leads, and Startup CTOs',
-  painPoints: [
-    'Spending 5+ hours every sprint reviewing long pull requests',
-    'Subtle regression bugs slipping into production',
-    'Writing manual release notes and changelogs',
-  ],
-  keyFeatures: [
-    'Instant AI PR Review with inline architectural feedback',
-    'Automatic Test Generation for uncovered edge cases',
-    'One-click GitHub Action integration',
-  ],
-  toneOfVoice: 'bold',
-  primaryColor: '#6366f1',
-  accentColor: '#ec4899',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-};
-
 // Local storage helpers
 function getLocal<T>(key: string, defaultValue: T): T {
   if (typeof window === 'undefined') return defaultValue;
@@ -55,11 +30,18 @@ function setLocal<T>(key: string, value: T): void {
   }
 }
 
-// App operations
+// ─────────────────────────────────────────────────────────────
+// 📱 APP PROFILE OPERATIONS
+// ─────────────────────────────────────────────────────────────
 export async function getStoredApps(): Promise<AppProfile[]> {
   if (isSupabaseConfigured && supabase) {
     try {
-      const { data, error } = await supabase.from('apps').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('apps')
+        .select('*')
+        .neq('id', 'demo-app-1')
+        .neq('name', 'DevFlow AI')
+        .order('created_at', { ascending: false });
       if (!error && data && data.length > 0) {
         return data.map((d) => ({
           id: d.id,
@@ -68,8 +50,8 @@ export async function getStoredApps(): Promise<AppProfile[]> {
           description: d.description,
           websiteUrl: d.website_url,
           targetAudience: d.target_audience,
-          painPoints: d.pain_points || [],
-          keyFeatures: d.key_features || [],
+          painPoints: Array.isArray(d.pain_points) ? d.pain_points : (typeof d.pain_points === 'string' ? JSON.parse(d.pain_points) : []),
+          keyFeatures: Array.isArray(d.key_features) ? d.key_features : (typeof d.key_features === 'string' ? JSON.parse(d.key_features) : []),
           toneOfVoice: d.tone_of_voice || 'bold',
           primaryColor: d.primary_color || '#6366f1',
           accentColor: d.accent_color || '#ec4899',
@@ -84,11 +66,19 @@ export async function getStoredApps(): Promise<AppProfile[]> {
   }
 
   const localApps = getLocal<AppProfile[]>(STORAGE_KEYS.APPS, []);
-  return localApps;
+  const cleanApps = localApps.filter((a) => a.id !== 'demo-app-1' && a.name !== 'DevFlow AI');
+  if (cleanApps.length !== localApps.length) {
+    setLocal(STORAGE_KEYS.APPS, cleanApps);
+    const activeId = getActiveAppId();
+    if (activeId === 'demo-app-1') {
+      setActiveAppId(cleanApps.length > 0 ? cleanApps[0].id : '');
+    }
+  }
+  return cleanApps;
 }
 
 export async function saveAppProfile(app: AppProfile): Promise<AppProfile> {
-  // Always update local cache
+  // 1. Update local cache
   const existing = getLocal<AppProfile[]>(STORAGE_KEYS.APPS, []);
   const index = existing.findIndex((a) => a.id === app.id);
   const updatedApps = index >= 0
@@ -98,26 +88,21 @@ export async function saveAppProfile(app: AppProfile): Promise<AppProfile> {
   setLocal(STORAGE_KEYS.APPS, updatedApps);
   setLocal(STORAGE_KEYS.ACTIVE_APP_ID, app.id);
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase.from('apps').upsert({
-        id: app.id,
-        name: app.name,
-        tagline: app.tagline,
-        description: app.description,
-        website_url: app.websiteUrl,
-        target_audience: app.targetAudience,
-        pain_points: app.painPoints,
-        key_features: app.keyFeatures,
-        tone_of_voice: app.toneOfVoice,
-        primary_color: app.primaryColor,
-        accent_color: app.accentColor,
-        logo_url: app.logoUrl,
-        updated_at: new Date().toISOString(),
-      });
-    } catch (e) {
-      console.warn('Could not sync app to Supabase', e);
+  // 2. Server-side Supabase Sync
+  try {
+    const res = await fetch('/api/supabase-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app }),
+    });
+    const result = await res.json();
+    if (result.success) {
+      console.log('%c[Supabase Sync] ✅ App Saved to Supabase:', 'color: #10b981; font-weight: bold;', app.name);
+    } else {
+      console.warn('[Supabase Sync] App save notice:', result.error);
     }
+  } catch (err) {
+    console.warn('[Supabase Sync] Offline/Local mode:', err);
   }
 
   return app;
@@ -130,26 +115,171 @@ export async function deleteAppProfile(appId: string): Promise<void> {
 
   if (isSupabaseConfigured && supabase) {
     try {
+      await supabase.from('posts').delete().eq('app_id', appId);
+      await supabase.from('campaigns').delete().eq('app_id', appId);
       await supabase.from('apps').delete().eq('id', appId);
+      console.log('%c[Supabase Sync] 🗑️ Deleted app from Supabase:', 'color: #f43f5e;', appId);
     } catch (e) {
       console.warn('Supabase delete failed', e);
     }
   }
 }
 
-// Campaign & Post operations
+// ─────────────────────────────────────────────────────────────
+// 🚀 CAMPAIGN & POST OPERATIONS
+// ─────────────────────────────────────────────────────────────
 export function getStoredCampaigns(appId: string): CampaignRoadmap[] {
   const allCampaigns = getLocal<CampaignRoadmap[]>(STORAGE_KEYS.CAMPAIGNS, []);
-  return allCampaigns.filter((c) => c.appId === appId);
+  const matching = allCampaigns.filter((c) => c.appId === appId);
+  return matching.sort((a, b) => (b.posts?.length || 0) - (a.posts?.length || 0));
 }
 
-export function saveCampaign(campaign: CampaignRoadmap): void {
+export async function fetchCampaignsFromSupabase(appId: string): Promise<CampaignRoadmap[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data: campaignData, error: cErr } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('app_id', appId)
+        .order('created_at', { ascending: false });
+
+      if (cErr) {
+        console.warn('[Supabase Sync] Campaigns query notice:', cErr.message);
+      }
+
+      const { data: postsData, error: pErr } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('app_id', appId)
+        .order('day_number', { ascending: true });
+
+      if (pErr) {
+        console.warn('[Supabase Sync] Posts query notice:', pErr.message);
+      }
+
+      if (campaignData && campaignData.length > 0) {
+        const remotePosts: PostContent[] = (postsData || []).map((p) => ({
+          id: p.id,
+          appId: p.app_id,
+          dayNumber: p.day_number,
+          title: p.title,
+          pillar: p.pillar,
+          scheduledFor: p.scheduled_for || `Day ${p.day_number}`,
+          status: p.status || 'scheduled',
+          generatedImageUrl: p.instagram?.generatedImageUrl || '',
+          aiModelUsed: 'Gemini AI',
+          linkedin: p.linkedin || {},
+          instagram: p.instagram || {},
+          graphicBanner: p.graphic_banner || {},
+          createdAt: p.created_at,
+        }));
+
+        const remoteCampaigns: CampaignRoadmap[] = campaignData.map((c) => ({
+          id: c.id,
+          appId: c.app_id,
+          name: c.name,
+          objective: c.objective || 'Product Launch & User Acquisition',
+          durationDays: c.duration_days || 14,
+          createdAt: c.created_at,
+          posts: remotePosts.filter((p) => p.appId === c.app_id),
+        }));
+
+        console.log(`%c[Supabase Sync] 📥 Loaded from Supabase: ${remoteCampaigns.length} campaigns, ${remotePosts.length} posts`, 'color: #3b82f6;');
+
+        // Merge into local cache
+        const allLocal = getLocal<CampaignRoadmap[]>(STORAGE_KEYS.CAMPAIGNS, []);
+        const filtered = allLocal.filter((c) => c.appId !== appId);
+        setLocal(STORAGE_KEYS.CAMPAIGNS, [...remoteCampaigns, ...filtered]);
+
+        return remoteCampaigns;
+      }
+    } catch (e) {
+      console.warn('Supabase fetch campaigns failed', e);
+    }
+  }
+
+  return getStoredCampaigns(appId);
+}
+
+export async function saveCampaign(campaign: CampaignRoadmap): Promise<void> {
+  // 1. Update local cache immediately
   const allCampaigns = getLocal<CampaignRoadmap[]>(STORAGE_KEYS.CAMPAIGNS, []);
-  const index = allCampaigns.findIndex((c) => c.id === campaign.id);
+  const index = allCampaigns.findIndex((c) => c.appId === campaign.appId || c.id === campaign.id);
   const updated = index >= 0
-    ? allCampaigns.map((c) => (c.id === campaign.id ? campaign : c))
+    ? allCampaigns.map((c, i) => (i === index ? campaign : c))
     : [campaign, ...allCampaigns];
   setLocal(STORAGE_KEYS.CAMPAIGNS, updated);
+
+  // 2. Server-side Supabase Sync (Apps + Campaigns + Posts)
+  try {
+    const apps = getLocal<AppProfile[]>(STORAGE_KEYS.APPS, []);
+    const matchingApp = apps.find((a) => a.id === campaign.appId);
+
+    const res = await fetch('/api/supabase-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        app: matchingApp,
+        campaign,
+        posts: campaign.posts,
+      }),
+    });
+
+    const result = await res.json();
+    if (result.success) {
+      console.log(`%c[Supabase Sync] ✅ Saved ${campaign.posts?.length || 0} posts to Supabase for ${campaign.name}`, 'background: #059669; color: white; padding: 2px 6px; border-radius: 4px;');
+    } else {
+      console.error('[Supabase Sync] ❌ Error syncing campaign/posts:', result.error, result.details);
+    }
+  } catch (err) {
+    console.error('[Supabase Sync] Network error during campaign save:', err);
+  }
+}
+
+/**
+ * Pushes all existing local apps, campaigns, and posts directly to Supabase with detailed console logs.
+ */
+export async function syncLocalDataToSupabase(): Promise<{ success: boolean; syncedCampaigns: number; syncedPosts: number; error?: string }> {
+  try {
+    const apps = getLocal<AppProfile[]>(STORAGE_KEYS.APPS, []);
+    const campaigns = getLocal<CampaignRoadmap[]>(STORAGE_KEYS.CAMPAIGNS, []);
+
+    console.log(`%c[Supabase Sync] 🚀 Starting sync for ${apps.length} apps and ${campaigns.length} campaigns...`, 'background: #4f46e5; color: white; padding: 2px 6px; border-radius: 4px;');
+
+    let totalSyncedPosts = 0;
+
+    for (const campaign of campaigns) {
+      const matchingApp = apps.find((a) => a.id === campaign.appId);
+
+      const res = await fetch('/api/supabase-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app: matchingApp,
+          campaign,
+          posts: campaign.posts,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        totalSyncedPosts += data.syncedPosts || 0;
+        console.log(`%c[Supabase Sync] ✅ Successfully synced: ${campaign.name} (${data.syncedPosts} posts)`, 'color: #10b981; font-weight: bold;');
+      } else {
+        console.error(`%c[Supabase Sync] ❌ Failed syncing ${campaign.name}:`, 'color: #ef4444;', data.error, data.details);
+        return { success: false, syncedCampaigns: 0, syncedPosts: 0, error: `${data.step || 'Sync'}: ${data.error}` };
+      }
+    }
+
+    return {
+      success: true,
+      syncedCampaigns: campaigns.length,
+      syncedPosts: totalSyncedPosts,
+    };
+  } catch (err: any) {
+    console.error('[Supabase Sync] ❌ syncLocalDataToSupabase exception:', err);
+    return { success: false, syncedCampaigns: 0, syncedPosts: 0, error: err?.message };
+  }
 }
 
 export function getActiveAppId(): string {
@@ -160,14 +290,16 @@ export function setActiveAppId(appId: string): void {
   setLocal(STORAGE_KEYS.ACTIVE_APP_ID, appId);
 }
 
-// Settings
+// ─────────────────────────────────────────────────────────────
+// ⚙️ SETTINGS OPERATIONS
+// ─────────────────────────────────────────────────────────────
 export function getUserSettings(): UserSettings {
   return getLocal<UserSettings>(STORAGE_KEYS.SETTINGS, {
     geminiApiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY || '',
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
     supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
     n8nWebhookUrl: process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || '',
-    userEmail: '',
+    userEmail: process.env.NEXT_PUBLIC_USER_GMAIL || process.env.USER_GMAIL || '',
   });
 }
 
@@ -175,11 +307,13 @@ export function saveUserSettings(settings: UserSettings): void {
   setLocal(STORAGE_KEYS.SETTINGS, settings);
 }
 
-// Reset / Clear All Data
+// ─────────────────────────────────────────────────────────────
+// 🗑️ RESET / CLEAR ALL DATA
+// ─────────────────────────────────────────────────────────────
 export async function clearAllStoredData(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    // Explicitly set empty values so no fallback kicks in
+    // Explicitly wipe local storage keys
     setLocal(STORAGE_KEYS.APPS, []);
     setLocal(STORAGE_KEYS.ACTIVE_APP_ID, '');
     setLocal(STORAGE_KEYS.CAMPAIGNS, []);
@@ -190,12 +324,15 @@ export async function clearAllStoredData(): Promise<void> {
     localStorage.removeItem(STORAGE_KEYS.CAMPAIGNS);
     localStorage.removeItem(STORAGE_KEYS.POSTS);
 
-    // Also wipe Supabase apps if connected so it doesn't re-fetch on reload
+    // Wipe remote Supabase tables if configured
     if (isSupabaseConfigured && supabase) {
       try {
+        await supabase.from('posts').delete().neq('id', 'non-existent-id');
+        await supabase.from('campaigns').delete().neq('id', 'non-existent-id');
         await supabase.from('apps').delete().neq('id', 'non-existent-id');
+        console.log('%c[Supabase Sync] 🗑️ Wiped all Supabase tables', 'color: #f43f5e;');
       } catch (err) {
-        console.warn('Could not clear Supabase apps', err);
+        console.warn('Could not clear Supabase tables', err);
       }
     }
   } catch (e) {

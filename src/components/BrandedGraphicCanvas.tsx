@@ -11,6 +11,8 @@ import {
   RefreshCw,
   Maximize2,
   Check,
+  Copy,
+  Wand2,
 } from 'lucide-react';
 
 interface BrandedGraphicCanvasProps {
@@ -27,16 +29,19 @@ export const BrandedGraphicCanvas: React.FC<BrandedGraphicCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [downloading, setDownloading] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<'square' | 'portrait'>('square');
-  const [viewMode, setViewMode] = useState<'canvas' | 'ai-image'>('canvas');
+  const [viewMode, setViewMode] = useState<'canvas' | 'ai-image'>('ai-image');
 
   // AI Image State - initialized from pre-rendered image
   const [aiImageUrl, setAiImageUrl] = useState<string | null>(post.generatedImageUrl || null);
   const [isGeneratingAiImage, setIsGeneratingAiImage] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   // Sync when post changes
   useEffect(() => {
     if (post.generatedImageUrl) {
       setAiImageUrl(post.generatedImageUrl);
+    } else if (!aiImageUrl && !isGeneratingAiImage) {
+      handleGenerateAiArt();
     }
   }, [post.id, post.generatedImageUrl]);
 
@@ -44,8 +49,7 @@ export const BrandedGraphicCanvas: React.FC<BrandedGraphicCanvasProps> = ({
   const headline = activeSlide?.headline || post.graphicBanner?.headline || post.title || app.name;
   const subtext = activeSlide?.bodyText || post.graphicBanner?.subheadline || app.tagline;
   const badge = activeSlide?.badge || post.graphicBanner?.badge || `${app.name.toUpperCase()}`;
-  const visualPrompt = activeSlide?.visualPrompt || post.instagram?.visualPrompt || `Modern 3D tech visualization for ${app.name}`;
-
+  const visualPrompt = activeSlide?.visualPrompt || post.instagram?.visualPrompt || `Vibrant commercial visual for ${app.name}`;
 
   // ─── CANVAS DRAWING ENGINE ───
   const drawGraphic = () => {
@@ -270,24 +274,11 @@ export const BrandedGraphicCanvas: React.FC<BrandedGraphicCanvasProps> = ({
   };
 
   return (
-    <div className="flex flex-col items-center w-full space-y-3">
+    <div className="flex flex-col items-center w-full space-y-3.5">
       {/* Aspect Ratio & Mode Controls */}
       <div className="w-full flex flex-wrap items-center justify-between gap-2 p-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700">
-        {/* View Mode: Canvas vs AI Art */}
+        {/* View Mode: AI Visual vs Typography Card */}
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setViewMode('canvas')}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all ${
-              viewMode === 'canvas'
-                ? 'bg-white text-indigo-600 shadow-2xs font-extrabold'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>Typography Card</span>
-          </button>
-
           <button
             type="button"
             onClick={() => {
@@ -312,9 +303,22 @@ export const BrandedGraphicCanvas: React.FC<BrandedGraphicCanvasProps> = ({
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>{aiImageUrl ? 'AI 3D Visual' : '✨ Generate AI Art'}</span>
+                <span>AI Generated Visual</span>
               </>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('canvas')}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all ${
+              viewMode === 'canvas'
+                ? 'bg-white text-indigo-600 shadow-2xs font-extrabold'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Typography Card</span>
           </button>
         </div>
 
@@ -361,7 +365,7 @@ export const BrandedGraphicCanvas: React.FC<BrandedGraphicCanvasProps> = ({
             ) : (
               <div className="p-6 text-center text-slate-400 text-xs">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
-                <span>Generating AI 3D visual...</span>
+                <span>Generating AI visual...</span>
               </div>
             )}
 
@@ -379,6 +383,33 @@ export const BrandedGraphicCanvas: React.FC<BrandedGraphicCanvasProps> = ({
             )}
           </div>
         )}
+      </div>
+
+      {/* AI Image Prompt Disclosure Box */}
+      <div className="w-full max-w-[340px] p-3.5 rounded-2xl bg-slate-100/90 border border-slate-200 text-left space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            AI Visual Prompt
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(visualPrompt);
+              setCopiedPrompt(true);
+              setTimeout(() => setCopiedPrompt(false), 2000);
+            }}
+            className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors cursor-pointer"
+            title="Copy prompt to clipboard"
+          >
+            {copiedPrompt ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+            <span>{copiedPrompt ? 'Copied' : 'Copy'}</span>
+          </button>
+        </div>
+
+        <p className="text-[11.5px] text-slate-700 leading-relaxed font-mono bg-white p-2.5 rounded-xl border border-slate-200/80 select-text">
+          &ldquo;{visualPrompt}&rdquo;
+        </p>
       </div>
 
       {/* Download Button */}

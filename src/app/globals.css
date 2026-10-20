@@ -39,6 +39,19 @@ body {
   background: #94a3b8;
 }
 
+/* ─── Dark Minimalist Scrollbar ─── */
+.dark-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+.dark-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+.dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+
 /* ─── Clean Card ─── */
 .card-clean {
   background: #ffffff;

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { AppProfile, PostContent } from '@/types';
-import { Copy, Check, ChevronLeft, ChevronRight, Sparkles, Edit3 } from 'lucide-react';
+import { Copy, Check, ChevronLeft, ChevronRight, Sparkles, Edit3, Mail, Loader2 } from 'lucide-react';
 import { BrandedGraphicCanvas } from './BrandedGraphicCanvas';
 
 interface InstagramPreviewCardProps {
@@ -11,6 +11,8 @@ interface InstagramPreviewCardProps {
   onUpdatePost: (updatedPost: PostContent) => void;
   onRefineWithAI?: (instruction: string) => Promise<void>;
   isRefining?: boolean;
+  userEmail?: string;
+  n8nWebhookUrl?: string;
 }
 
 export const InstagramPreviewCard: React.FC<InstagramPreviewCardProps> = ({
@@ -19,11 +21,15 @@ export const InstagramPreviewCard: React.FC<InstagramPreviewCardProps> = ({
   onUpdatePost,
   onRefineWithAI,
   isRefining = false,
+  userEmail = '',
+  n8nWebhookUrl = '',
 }) => {
   const [copied, setCopied] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editedCaption, setEditedCaption] = useState(post.instagram.caption);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const slides = post.instagram?.carouselSlides || [];
   const totalSlides = slides.length > 0 ? slides.length : 1;
@@ -46,6 +52,34 @@ export const InstagramPreviewCard: React.FC<InstagramPreviewCardProps> = ({
     setIsEditing(false);
   };
 
+  const handleSendToGmail = async () => {
+    setIsSendingEmail(true);
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toEmail: userEmail,
+          n8nWebhookUrl,
+          post,
+          app,
+          imageUrl: post.generatedImageUrl,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.gmailWebUrl) {
+        window.open(data.gmailWebUrl, '_blank');
+      }
+      setEmailSent(true);
+      setTimeout(() => setEmailSent(false), 4000);
+    } catch (err) {
+      console.error('Failed to send to Gmail', err);
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
   const nextSlide = () => {
     setActiveSlide((prev) => (prev + 1) % totalSlides);
   };
@@ -59,13 +93,29 @@ export const InstagramPreviewCard: React.FC<InstagramPreviewCardProps> = ({
       {/* Left Column: Instagram Caption */}
       <div className="md:col-span-7 space-y-4">
         {/* Action Bar */}
-        <div className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <div>
             <h3 className="font-bold text-slate-900 text-base">Instagram Caption</h3>
             <p className="text-xs text-slate-500">Ready to copy and paste to Instagram</p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleSendToGmail}
+              disabled={isSendingEmail}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              title="Open or send post briefing in Gmail"
+            >
+              {isSendingEmail ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : emailSent ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <Mail className="w-3.5 h-3.5 text-rose-500" />
+              )}
+              <span>{emailSent ? 'Opened in Gmail!' : '📧 Send to Gmail'}</span>
+            </button>
+
             <button
               onClick={() => {
                 if (isEditing) {

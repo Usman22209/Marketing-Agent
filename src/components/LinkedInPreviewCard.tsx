@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { AppProfile, PostContent } from '@/types';
-import { Copy, Check, Edit3, Sparkles } from 'lucide-react';
+import { Copy, Check, Edit3, Sparkles, Mail, Send, Loader2 } from 'lucide-react';
 import { BrandedGraphicCanvas } from './BrandedGraphicCanvas';
 
 interface LinkedInPreviewCardProps {
@@ -11,6 +11,8 @@ interface LinkedInPreviewCardProps {
   onUpdatePost: (updatedPost: PostContent) => void;
   onRefineWithAI?: (instruction: string) => Promise<void>;
   isRefining?: boolean;
+  userEmail?: string;
+  n8nWebhookUrl?: string;
 }
 
 export const LinkedInPreviewCard: React.FC<LinkedInPreviewCardProps> = ({
@@ -19,10 +21,14 @@ export const LinkedInPreviewCard: React.FC<LinkedInPreviewCardProps> = ({
   onUpdatePost,
   onRefineWithAI,
   isRefining = false,
+  userEmail = '',
+  n8nWebhookUrl = '',
 }) => {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState(post.linkedin.fullFormattedText);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(isEditing ? editedText : post.linkedin.fullFormattedText);
@@ -41,18 +47,62 @@ export const LinkedInPreviewCard: React.FC<LinkedInPreviewCardProps> = ({
     setIsEditing(false);
   };
 
+  const handleSendToGmail = async () => {
+    setIsSendingEmail(true);
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toEmail: userEmail,
+          n8nWebhookUrl,
+          post,
+          app,
+          imageUrl: post.generatedImageUrl,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.gmailWebUrl) {
+        window.open(data.gmailWebUrl, '_blank');
+      }
+      setEmailSent(true);
+      setTimeout(() => setEmailSent(false), 4000);
+    } catch (err) {
+      console.error('Failed to send to Gmail', err);
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
       {/* Left Column: Post Text */}
       <div className="md:col-span-7 space-y-4">
         {/* Big Action Bar */}
-        <div className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <div>
             <h3 className="font-bold text-slate-900 text-base">LinkedIn Post Text</h3>
             <p className="text-xs text-slate-500">Ready to copy and paste to your LinkedIn</p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleSendToGmail}
+              disabled={isSendingEmail}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              title="Open or send post briefing in Gmail"
+            >
+              {isSendingEmail ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : emailSent ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <Mail className="w-3.5 h-3.5 text-rose-500" />
+              )}
+              <span>{emailSent ? 'Opened in Gmail!' : '📧 Send to Gmail'}</span>
+            </button>
+
             <button
               onClick={() => setIsEditing(!isEditing)}
               className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"

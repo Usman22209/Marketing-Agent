@@ -22,7 +22,9 @@ interface AppFormModalProps {
   onClose: () => void;
   onSave: (app: AppProfile) => void;
   initialApp?: AppProfile | null;
+  isEditing?: boolean;
 }
+
 
 // ─── SAMPLE JSON TEMPLATE ───
 const SAMPLE_JSON_TEMPLATE = `{
