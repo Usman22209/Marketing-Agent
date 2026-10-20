@@ -18,9 +18,7 @@ dist/
 # ─────────────────────────────────────────────────────────────
 # 🔐 Environment Variables & Secrets (Keep your API keys safe!)
 # ─────────────────────────────────────────────────────────────
-.env
 .env*.local
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local
@@ -60,11 +58,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
 
 # ─────────────────────────────────────────────────────────────
 # ⚡ Caching & Misc
@@ -73,3 +66,8 @@ Thumbs.db
 .eslintcache
 .turbo/
 .cache
+config.bat
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
