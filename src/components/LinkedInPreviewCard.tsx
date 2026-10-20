@@ -12,7 +12,6 @@ interface LinkedInPreviewCardProps {
   onRefineWithAI?: (instruction: string) => Promise<void>;
   isRefining?: boolean;
   userEmail?: string;
-  n8nWebhookUrl?: string;
 }
 
 export const LinkedInPreviewCard: React.FC<LinkedInPreviewCardProps> = ({
@@ -22,7 +21,6 @@ export const LinkedInPreviewCard: React.FC<LinkedInPreviewCardProps> = ({
   onRefineWithAI,
   isRefining = false,
   userEmail = '',
-  n8nWebhookUrl = '',
 }) => {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -55,7 +53,6 @@ export const LinkedInPreviewCard: React.FC<LinkedInPreviewCardProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           toEmail: userEmail,
-          n8nWebhookUrl,
           post,
           app,
           imageUrl: post.generatedImageUrl,
